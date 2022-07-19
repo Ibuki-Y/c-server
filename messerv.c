@@ -1,4 +1,4 @@
-/* Usage: messerv [msgfile messerv.msg:default] [portno 58089:default] */
+/* Usage: messerv [msgfile messerv.msg:default] [portno 3000:default] */
 /* http://localhost:3000/ */
 #include <netinet/in.h>
 #include <pthread.h>
@@ -19,13 +19,18 @@ struct sockaddr_in from;
 int s; /* socket */
 int g; /* socket */
 
-char* filename = "messerv.msg";
-char* default_message =
+char *filename = "messerv.msg";
+char *default_message =
     "HTTP/1.0 200 Document follows\n"
     "Server: messerv\n"
     "Content-Type: text/html; charset=UTF-8\n"
     "\n"
     "No Proxy now\n";
+
+/* vue.js CDN */
+char *cdn_vue =
+    "<script "
+    "src=\"https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js\"></script>\n";
 
 /* signal handler */
 void catch_int() {
@@ -35,34 +40,20 @@ void catch_int() {
     exit(0);
 }
 
-void service(int g) {
+void *callback(void *g) {
+    int *gg = (int *)g;
     int len, i, ch;
     FILE *fp = NULL, *fout;
 
-    len = read(g, recv_buf, BUFMAX - 2);
-    if (len == -1) {
-        perror("read");
-        close(g);
-        exit(1);
-    }
-
-    for (i = 0; i < len; i++) putchar(recv_buf[i]);
-    fflush(stdout);
-
-    // close(1); dup(g); close(g);
-    fout = fdopen(g, "w");
-    if (filename != NULL && (fp = fopen(filename, "r")) != NULL) {
-        while ((ch = getc(fp)) != EOF) putc(ch, fout);
-        fflush(fout);
-    } else {
-        fprintf(stdout, "%s\n", default_message);
-    }
-}
-
-void* callback(void* g) {
-    int* gg = (int*)g;
-    int len, i, ch;
-    FILE *fp = NULL, *fout;
+    /* 課題(1) DATE */
+    time_t t = time(NULL);
+    char strs[200];
+    char *str;
+    char *j;
+    /* 課題(2) vue(CDN)読み込み */
+    char *k;
+    char *tmp_date;
+    char *tmp_cdn;
 
     len = read(*gg, recv_buf, BUFMAX - 2);
     if (len == -1) {
@@ -77,7 +68,40 @@ void* callback(void* g) {
     // close(1); dup(g); close(g);
     fout = fdopen(*gg, "w");
     if (filename != NULL && (fp = fopen(filename, "r")) != NULL) {
-        while ((ch = getc(fp)) != EOF) putc(ch, fout);
+        while (fgets(strs, 200, fp) != NULL) {
+            str = strs;
+            if ((tmp_date = strstr(strs, "DATE"))) {
+                /* DATE置換 */
+                for (j = str; j < tmp_date; j++) {
+                    putc((int)*j, fout);
+                }
+                j += 4;
+                fprintf(fout, "%s", asctime(localtime(&t)));
+                while (1) {
+                    putc((int)*j, fout);
+                    if (*j == '\n') break;
+                    j++;
+                }
+            } else if ((tmp_cdn = strstr(strs, "CDN"))) {
+                /* CDN置換 */
+                for (k = str; k < tmp_cdn; k++) {
+                    putc((int)*j, fout);
+                }
+                k += 3;
+                fprintf(fout, "%s", cdn_vue);
+                while (1) {
+                    putc((int)*k, fout);
+                    if (*k == '\n') break;
+                    k++;
+                }
+            } else {
+                while (1) {
+                    putc((int)*str, fout);
+                    if (*str == '\n') break;
+                    str++;
+                }
+            }
+        }
         fflush(fout);
     } else {
         fprintf(stdout, "%s\n", default_message);
@@ -89,7 +113,7 @@ void* callback(void* g) {
 /*
  * pthread_create(pthread_t*thread,pthread_attr_t*attr,void*(*start_routine)(void*),void*arg);
  */
-int main(int ac, char* av[]) {
+int main(int ac, char *av[]) {
     int ss, status;
     int pid;
     pthread_t t;
@@ -103,7 +127,7 @@ int main(int ac, char* av[]) {
     printf("socket s=%d\n", s);
     {
         int on = 1;
-        if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*)&on, sizeof(on)) <
+        if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on)) <
             0) {
             perror("setsockopt");
             exit(1);
@@ -114,7 +138,7 @@ int main(int ac, char* av[]) {
     serv.sin_addr.s_addr = INADDR_ANY;
     serv.sin_port = htons(Internet_Port);
 
-    ss = bind(s, (struct sockaddr*)&serv, sizeof serv);
+    ss = bind(s, (struct sockaddr *)&serv, sizeof serv);
     printf("ss=%d\n", ss);
     if (ss < 0) {
         fprintf(stdout, "Can't bind\n");
@@ -125,7 +149,7 @@ int main(int ac, char* av[]) {
     listen(s, 5);
     while (1) {
         socklen_t len = sizeof(from);
-        if ((g = accept(s, (struct sockaddr*)&from, &len)) < 0) {
+        if ((g = accept(s, (struct sockaddr *)&from, &len)) < 0) {
             perror("accept");
             exit(0);
         }
